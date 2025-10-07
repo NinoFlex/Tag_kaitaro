@@ -100,6 +100,23 @@ class Tooltip:
                 pass
             self.tipwindow = None
 
+def build_integrated_composer(ext, info):
+    composer = info.get("composer", "").strip()
+    if ext == ".m4a":
+        remixer = info.get("arranger", "").strip()
+        if remixer == composer:
+            return composer
+        elif remixer:
+            return f"{composer} / {remixer}"
+        return composer
+    elif ext == ".flac":
+        lyricist = info.get("lyricist", "").strip()
+        if lyricist == composer:
+            return composer
+        elif lyricist:
+            return f"{lyricist} / {composer}"
+        return composer
+    return composer
 
 def build_composer_tag(lyricist=None, composer=None, arranger=None):
     parts = []
@@ -541,14 +558,24 @@ class AudioTagGUI:
         self.progress_label.pack(side=tk.LEFT, padx=10)
 
         self.write_mode = tk.StringVar(value="A")  # デフォルトはタイプA
+        def update_mode_visibility():
+            if self.write_mode.get() == "A":
+                self.chk_integrate.pack(side=tk.LEFT, padx=(10,0))
+            else:
+                self.chk_integrate.pack_forget()
 
         self.frame_mode = tk.Frame(root)
         self.frame_mode.pack(fill=tk.X, padx=5, pady=2)
-        tk.Label(self.frame_mode, text="書き込み形式:").pack(side=tk.LEFT)
-        tk.Radiobutton(self.frame_mode, text="タイプA（個別形式）", variable=self.write_mode, value="A").pack(side=tk.LEFT)
-        tk.Radiobutton(self.frame_mode, text="タイプB（統合形式）", variable=self.write_mode, value="B").pack(side=tk.LEFT)
         info_btn_mode = tk.Label(self.frame_mode, text="❓", cursor="hand2")
         info_btn_mode.pack(side=tk.LEFT, padx=(6,0))
+
+
+        tk.Label(self.frame_mode, text="書き込み形式:").pack(side=tk.LEFT)
+        tk.Radiobutton(self.frame_mode, text="タイプA（個別形式）", variable=self.write_mode, value="A", command=update_mode_visibility).pack(side=tk.LEFT)
+        tk.Radiobutton(self.frame_mode, text="タイプB（統合形式）", variable=self.write_mode, value="B", command=update_mode_visibility).pack(side=tk.LEFT)
+        self.integrate_unwritable_tags = tk.BooleanVar(value=False)
+        self.chk_integrate = tk.Checkbutton(self.frame_mode, text="ファイルの仕様上書き込めないタグを作曲者タグに統合する", variable=self.integrate_unwritable_tags)
+        self.chk_integrate.pack(side=tk.LEFT, padx=(10,0))
         table = [
             ["ファイル形式ごとに書き込み可能なタグ", "コメント", "作詞者", "作曲者", "リミキサー"],
             [".m4aファイル(iTunesから買った音源など)", "◯", "◯", "◯", "✕"],
@@ -767,7 +794,7 @@ class AudioTagGUI:
                 composer = info.get("composer", "")
                 arranger = info.get("arranger", "")
                 mode = self.write_mode.get()
-
+                ext = os.path.splitext(filepath)[1].lower()
                 # 作詞者
                 if lyricist:
                     res = set_credit_tag(filepath, "作詞者", lyricist, force_overwrite=self.overwrite_flags["作詞者"].get())
@@ -780,7 +807,10 @@ class AudioTagGUI:
                         res = set_credit_tag(filepath, "作曲者", composer_tag_value, force_overwrite=self.overwrite_flags["作曲者"].get())
                         self.log_message(res)
                 elif mode == "A":
-                    if composer:
+                    if composer and self.integrate_unwritable_tags.get():
+                        value = build_integrated_composer(ext, info)
+                        res = set_credit_tag(filepath, "作曲者", value, force_overwrite=self.overwrite_flags["作曲者"].get())
+                    elif composer:
                         res = set_credit_tag(filepath, "作曲者", composer, force_overwrite=self.overwrite_flags["作曲者"].get())
                         self.log_message(res)
 
