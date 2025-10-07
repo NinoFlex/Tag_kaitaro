@@ -310,14 +310,7 @@ def set_credit_tag(filepath, role, value, force_overwrite=False):
             flac = FLAC(filepath)
 
             if role == "作詞者":
-                existing = flac.get("LYRICIST", [""])[0] if "LYRICIST" in flac else ""
-                if force_overwrite or not existing:
-                    flac["LYRICIST"] = value
-                    updated = True
-                    msg = f"作詞者 書き込み → '{value}'"
-                else:
-                    msg = f"作詞者 既存='{existing}' → スキップ"
-
+                None
             elif role == "作曲者":
                 existing = flac.get("COMPOSER", [""])[0] if "COMPOSER" in flac else ""
                 if force_overwrite or not existing:
@@ -588,6 +581,8 @@ class AudioTagGUI:
             "タイプA(個別形式)では、Webから取得した情報をファイル形式ごとに書き込み可能なタグのみ書き込みます。",
             "タイプB(統合形式)では、上記に加え、「作曲者」タグに 「作詞=\"\" 作曲=\"\" 編曲=\"\" 」という形式で、Webから取得した情報を書き込みます。",
             "作曲者タグにクレジット情報を集約させたい場合はタイプBを選択してください。",
+            "",
+            "タイプAを選んで「ファイルの仕様上書き込めないタグを作曲者タグに統合する」を有効化すると、取得した、m4aのリミキサー/flacの作詞者が作曲者タグに書き込まれます。",
         ]
 
         Tooltip(info_btn_mode, table, description, delay=200)
