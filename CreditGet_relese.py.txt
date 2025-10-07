@@ -550,29 +550,15 @@ class AudioTagGUI:
         self.progress_label = tk.Label(frame_top, text="", fg="blue")
         self.progress_label.pack(side=tk.LEFT, padx=10)
 
-        self.frame_mode = tk.Frame(root)
-        self.frame_mode.pack(fill=tk.X, padx=5, pady=2)
         self.write_mode = tk.StringVar(value="A")  # デフォルトはタイプA
-        default_fmt = '作詞="{lyricist}" 作曲="{composer}" 編曲="{arranger}"'
-        self.b_template_var = tk.StringVar(value=default_fmt)
-        self.lbl_bfmt = tk.Label(self.frame_mode, text="作曲者タグへの書き込み書式テンプレート:")
-        self.entry_bfmt = tk.Entry(self.frame_mode, textvariable=self.b_template_var, width=70)
-        # pack だけ作るが、最初は呼び出さず隠しておく
-        # self.lbl_bfmt.pack_forget()
-        # self.entry_bfmt.pack_forget()
-
-        # ③ Radiobutton の command に表示制御関数を登録
-
         def update_mode_visibility():
             if self.write_mode.get() == "A":
                 self.chk_integrate.pack(side=tk.LEFT, padx=(10,0))
-                self.lbl_bfmt.pack_forget()
-                self.entry_bfmt.pack_forget()
             else:
                 self.chk_integrate.pack_forget()
-                self.lbl_bfmt.pack(side=tk.LEFT, padx=(10,0))
-                self.entry_bfmt.pack(side=tk.LEFT, padx=(4,0))
 
+        self.frame_mode = tk.Frame(root)
+        self.frame_mode.pack(fill=tk.X, padx=5, pady=2)
         info_btn_mode = tk.Label(self.frame_mode, text="❓", cursor="hand2")
         info_btn_mode.pack(side=tk.LEFT, padx=(6,0))
 
@@ -810,27 +796,11 @@ class AudioTagGUI:
                     self.log_message(res)
 
                 # 作曲者
-                if mode == "B" and (composer or lyricist or arranger):
-                    # ユーザー定義の書式文字列を展開
-                    fmt = self.b_template_var.get()
-                    try:
-                        value = fmt.format(
-                            lyricist=lyricist or "",
-                            composer=composer or "",
-                            arranger=arranger or ""
-                        )
-                    except Exception as e:
-                        self.log_message(f"[{os.path.basename(filepath)}] フォーマット展開エラー: {e}")
-                        continue
-
-                    overwrite = self.overwrite_flags["作曲者"].get()
-                    res = set_credit_tag(
-                        filepath,
-                        "作曲者",
-                        value,
-                        force_overwrite=overwrite
-                    )
-                    self.log_message(res)
+                if mode == "B":
+                    if composer or lyricist or arranger:
+                        composer_tag_value = build_composer_tag(lyricist=lyricist, composer=composer, arranger=arranger)
+                        res = set_credit_tag(filepath, "作曲者", composer_tag_value, force_overwrite=self.overwrite_flags["作曲者"].get())
+                        self.log_message(res)
                 elif mode == "A":
                     if composer and self.integrate_unwritable_tags.get():
                         value = build_integrated_composer(ext, info)
