@@ -100,6 +100,23 @@ class Tooltip:
                 pass
             self.tipwindow = None
 
+def build_integrated_composer(ext, info):
+    composer = info.get("composer", "").strip()
+    if ext == ".m4a":
+        remixer = info.get("arranger", "").strip()
+        if remixer == composer:
+            return composer
+        elif remixer:
+            return f"{composer} / {remixer}"
+        return composer
+    elif ext == ".flac":
+        lyricist = info.get("lyricist", "").strip()
+        if lyricist == composer:
+            return composer
+        elif lyricist:
+            return f"{lyricist} / {composer}"
+        return composer
+    return composer
 
 def build_composer_tag(lyricist=None, composer=None, arranger=None):
     parts = []
@@ -293,14 +310,7 @@ def set_credit_tag(filepath, role, value, force_overwrite=False):
             flac = FLAC(filepath)
 
             if role == "作詞者":
-                existing = flac.get("LYRICIST", [""])[0] if "LYRICIST" in flac else ""
-                if force_overwrite or not existing:
-                    flac["LYRICIST"] = value
-                    updated = True
-                    msg = f"作詞者 書き込み → '{value}'"
-                else:
-                    msg = f"作詞者 既存='{existing}' → スキップ"
-
+                None
             elif role == "作曲者":
                 existing = flac.get("COMPOSER", [""])[0] if "COMPOSER" in flac else ""
                 if force_overwrite or not existing:
@@ -540,15 +550,39 @@ class AudioTagGUI:
         self.progress_label = tk.Label(frame_top, text="", fg="blue")
         self.progress_label.pack(side=tk.LEFT, padx=10)
 
-        self.write_mode = tk.StringVar(value="A")  # デフォルトはタイプA
-
         self.frame_mode = tk.Frame(root)
         self.frame_mode.pack(fill=tk.X, padx=5, pady=2)
-        tk.Label(self.frame_mode, text="書き込み形式:").pack(side=tk.LEFT)
-        tk.Radiobutton(self.frame_mode, text="タイプA（個別形式）", variable=self.write_mode, value="A").pack(side=tk.LEFT)
-        tk.Radiobutton(self.frame_mode, text="タイプB（統合形式）", variable=self.write_mode, value="B").pack(side=tk.LEFT)
+        self.write_mode = tk.StringVar(value="A")  # デフォルトはタイプA
+        default_fmt = '作詞="{lyricist}" 作曲="{composer}" 編曲="{arranger}"'
+        self.b_template_var = tk.StringVar(value=default_fmt)
+        self.lbl_bfmt = tk.Label(self.frame_mode, text="作曲者タグへの書き込み書式テンプレート:")
+        self.entry_bfmt = tk.Entry(self.frame_mode, textvariable=self.b_template_var, width=70)
+        # pack だけ作るが、最初は呼び出さず隠しておく
+        # self.lbl_bfmt.pack_forget()
+        # self.entry_bfmt.pack_forget()
+
+        # ③ Radiobutton の command に表示制御関数を登録
+
+        def update_mode_visibility():
+            if self.write_mode.get() == "A":
+                self.chk_integrate.pack(side=tk.LEFT, padx=(10,0))
+                self.lbl_bfmt.pack_forget()
+                self.entry_bfmt.pack_forget()
+            else:
+                self.chk_integrate.pack_forget()
+                self.lbl_bfmt.pack(side=tk.LEFT, padx=(10,0))
+                self.entry_bfmt.pack(side=tk.LEFT, padx=(4,0))
+
         info_btn_mode = tk.Label(self.frame_mode, text="❓", cursor="hand2")
         info_btn_mode.pack(side=tk.LEFT, padx=(6,0))
+
+
+        tk.Label(self.frame_mode, text="書き込み形式:").pack(side=tk.LEFT)
+        tk.Radiobutton(self.frame_mode, text="タイプA（個別形式）", variable=self.write_mode, value="A", command=update_mode_visibility).pack(side=tk.LEFT)
+        tk.Radiobutton(self.frame_mode, text="タイプB（統合形式）", variable=self.write_mode, value="B", command=update_mode_visibility).pack(side=tk.LEFT)
+        self.integrate_unwritable_tags = tk.BooleanVar(value=False)
+        self.chk_integrate = tk.Checkbutton(self.frame_mode, text="ファイルの仕様上書き込めないタグを作曲者タグに統合する", variable=self.integrate_unwritable_tags)
+        self.chk_integrate.pack(side=tk.LEFT, padx=(10,0))
         table = [
             ["ファイル形式ごとに書き込み可能なタグ", "コメント", "作詞者", "作曲者", "リミキサー"],
             [".m4aファイル(iTunesから買った音源など)", "◯", "◯", "◯", "✕"],
@@ -557,10 +591,12 @@ class AudioTagGUI:
         ]
 
         description = [
-            "recordboxでは、上記の表の通り、ファイル形式によって保存できるタグが異なります。これは技術的に仕方がないことなのです。",
-            "タイプA(個別形式)では、Webから取得した情報をファイル形式ごとに書き込み可能なタグのみ書き込みます。",
-            "タイプB(統合形式)では、上記に加え、「作曲者」タグに 「作詞=\"\" 作曲=\"\" 編曲=\"\" 」という形式で、Webから取得した情報を書き込みます。",
+            "recordboxでは、上記の表の通り、ファイル形式によって表示できるタグが異なります。これは技術的に仕方がないことなのです。",
+            "タイプA(個別形式):  ファイル形式ごとに書き込み可能なタグのみ書き込みます。",
+            "タイプB(統合形式): 「作曲者」タグに 「作詞=\"\" 作曲=\"\" 編曲=\"\" 」",
             "作曲者タグにクレジット情報を集約させたい場合はタイプBを選択してください。",
+            "",
+            "タイプAを選んで「ファイルの仕様上書き込めないタグを作曲者タグに統合する」を有効化すると、取得した m4aのリミキサー/flacの作詞者 など、書き込めない情報のみ作曲者タグに統合して書き込まれます。",
         ]
 
         Tooltip(info_btn_mode, table, description, delay=200)
@@ -767,20 +803,39 @@ class AudioTagGUI:
                 composer = info.get("composer", "")
                 arranger = info.get("arranger", "")
                 mode = self.write_mode.get()
-
+                ext = os.path.splitext(filepath)[1].lower()
                 # 作詞者
                 if lyricist:
                     res = set_credit_tag(filepath, "作詞者", lyricist, force_overwrite=self.overwrite_flags["作詞者"].get())
                     self.log_message(res)
 
                 # 作曲者
-                if mode == "B":
-                    if composer or lyricist or arranger:
-                        composer_tag_value = build_composer_tag(lyricist=lyricist, composer=composer, arranger=arranger)
-                        res = set_credit_tag(filepath, "作曲者", composer_tag_value, force_overwrite=self.overwrite_flags["作曲者"].get())
-                        self.log_message(res)
+                if mode == "B" and (composer or lyricist or arranger):
+                    # ユーザー定義の書式文字列を展開
+                    fmt = self.b_template_var.get()
+                    try:
+                        value = fmt.format(
+                            lyricist=lyricist or "",
+                            composer=composer or "",
+                            arranger=arranger or ""
+                        )
+                    except Exception as e:
+                        self.log_message(f"[{os.path.basename(filepath)}] フォーマット展開エラー: {e}")
+                        continue
+
+                    overwrite = self.overwrite_flags["作曲者"].get()
+                    res = set_credit_tag(
+                        filepath,
+                        "作曲者",
+                        value,
+                        force_overwrite=overwrite
+                    )
+                    self.log_message(res)
                 elif mode == "A":
-                    if composer:
+                    if composer and self.integrate_unwritable_tags.get():
+                        value = build_integrated_composer(ext, info)
+                        res = set_credit_tag(filepath, "作曲者", value, force_overwrite=self.overwrite_flags["作曲者"].get())
+                    elif composer:
                         res = set_credit_tag(filepath, "作曲者", composer, force_overwrite=self.overwrite_flags["作曲者"].get())
                         self.log_message(res)
 
