@@ -6,7 +6,7 @@ import threading, traceback
 
 # --- get_credit.py 相当 ---
 import re, html, requests
-from mutagen.id3 import ID3, ID3NoHeaderError, TXXX, TCOM, COMM
+from mutagen.id3 import ID3, ID3NoHeaderError, TXXX, TCOM, COMM, TDRC
 from mutagen.flac import FLAC
 from mutagen.mp4 import MP4, MP4Tags, MP4FreeForm
 
@@ -226,6 +226,15 @@ def get_song_page_info(song_id):
     m3 = re.search(r'編曲：\s*(.+?)(?=\s*(作詞：|作曲：|発売日：|$))', text)
     if m3:
         info["arranger"] = m3.group(1).strip()
+    
+    # 発売日
+    m4 = re.search(r'発売日：\s*([0-9]{4})/([0-9]{2})/([0-9]{2})', text)
+    if m4:
+        info["release_date"] = m4.group(0).replace("発売日：", "").strip()
+        info["year"] = m4.group(1)
+    else:
+        info["release_date"] = ""
+        info["year"] = ""
 
     msg = f"取得結果 → アニメ='{info['anime']}', 作詞='{info['lyricist']}', 作曲='{info['composer']}', 編曲='{info['arranger']}'"
     if not info["anime"]:
@@ -237,7 +246,7 @@ def get_song_page_info(song_id):
 
 def set_credit_tag(filepath, role, value, force_overwrite=False):
     """
-    role: "作詞者" / "作曲者" / "コメント" / "リミキサー"
+    role: "作詞者" / "作曲者" / "コメント" / "リミキサー" / "発売年"
     value: 書き込みたい値
     force_overwrite: True の場合、既存値があっても強制的に上書きする
     """
@@ -304,6 +313,18 @@ def set_credit_tag(filepath, role, value, force_overwrite=False):
                 else:
                     msg = f"リミキサー 既存='{existing}' → スキップ"
 
+            elif role == "発売年":
+                # TDRC フレームで扱う（ID3v2.3/2.4 の Year/Recording time）
+                existing = id3.getall("TDRC")[0].text[0] if id3.getall("TDRC") and id3.getall("TDRC")[0].text else ""
+                if force_overwrite or existing in ("", "0"):
+                    # 既存の TDRC を削除して新規追加
+                    id3.delall("TDRC")
+                    id3.add(TDRC(encoding=3, text=[value]))
+                    updated = True
+                    msg = f"発売年 上書き (既存='{existing}') → '{value}'"
+                else:
+                    msg = f"発売年 既存='{existing}' → スキップ"
+
             id3.save(filepath, v2_version=3)
 
         elif ext == ".flac":
@@ -337,6 +358,15 @@ def set_credit_tag(filepath, role, value, force_overwrite=False):
                     msg = f"リミキサー 書き込み → '{value}'"
                 else:
                     msg = f"リミキサー 既存='{existing}' → スキップ"
+
+            elif role == "発売年":
+                existing = flac.get("DATE", [""])[0] if "DATE" in flac else ""
+                if force_overwrite or not existing:
+                    flac["DATE"] = value
+                    updated = True
+                    msg = f"発売年 書き込み → '{value}'"
+                else:
+                    msg = f"発売年 既存='{existing}' → スキップ"
 
             flac.save()
 
@@ -373,6 +403,15 @@ def set_credit_tag(filepath, role, value, force_overwrite=False):
 
             elif role == "リミキサー":
                 None
+
+            elif role == "発売年":
+                existing = tags.get("©day", [""])[0] if "©day" in tags else ""
+                if force_overwrite or not existing:
+                    tags["©day"] = [value]
+                    updated = True
+                    msg = f"発売年 書き込み → '{value}'"
+                else:
+                    msg = f"発売年 既存='{existing}' → スキップ"
 
             mp4.tags = tags
             mp4.save()
@@ -593,7 +632,7 @@ class AudioTagGUI:
         description = [
             "recordboxでは、上記の表の通り、ファイル形式によって表示できるタグが異なります。これは技術的に仕方がないことなのです。",
             "タイプA(個別形式):  ファイル形式ごとに書き込み可能なタグのみ書き込みます。",
-            "タイプB(統合形式): 「作曲者」タグに 「作詞=\"\" 作曲=\"\" 編曲=\"\" 」",
+            "タイプB(統合形式): 「作曲者」タグに 「作詞=\"\" 作曲=\"\" 編曲=\"\" 」など、任意の形式で書き込めます",
             "作曲者タグにクレジット情報を集約させたい場合はタイプBを選択してください。",
             "",
             "タイプAを選んで「ファイルの仕様上書き込めないタグを作曲者タグに統合する」を有効化すると、取得した m4aのリミキサー/flacの作詞者 など、書き込めない情報のみ作曲者タグに統合して書き込まれます。",
@@ -607,6 +646,7 @@ class AudioTagGUI:
             "作詞者": tk.BooleanVar(value=False),
             "作曲者": tk.BooleanVar(value=False),
             "リミキサー": tk.BooleanVar(value=False),
+            "発売年": tk.BooleanVar(value=False), 
         }
 
         self.frame_overwrite = tk.Frame(root)
@@ -619,7 +659,7 @@ class AudioTagGUI:
         frame_mid = tk.Frame(root)
         frame_mid.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        columns = ("タイトル", "アーティスト", "コメント", "作詞者", "作曲者", "リミキサー", "サイズ")
+        columns = ("タイトル", "アーティスト", "コメント", "作詞者", "作曲者", "リミキサー", "発売年", "サイズ")
         self.tree = ttk.Treeview(frame_mid, columns=columns, show="headings")
 
         for col in columns:
@@ -683,10 +723,10 @@ class AudioTagGUI:
         try:
             ext = os.path.splitext(filepath)[1].lower()
             audio = MutagenFile(filepath, easy=True)
-            title, artist, comment, lyricist, composer, remixer = "", "", "", "", "", ""
+            title, artist, comment, lyricist, composer, remixer, year = "", "", "", "", "", "", ""
 
             if not audio:
-                return [os.path.basename(filepath), "", "", "", "", ""]
+                return [os.path.basename(filepath), "", "", "", "", "", "", ""]
 
             if ext == ".mp3":
                 id3 = ID3(filepath)
@@ -704,6 +744,11 @@ class AudioTagGUI:
                 frames = id3.getall("TXXX:MIXARTIST")
                 if frames and frames[0].text:
                     remixer = frames[0].text[0]
+                # 発売年
+                yframes = id3.getall("TDRC")
+                if yframes and yframes[0].text:
+                    year = yframes[0].text[0]
+
             elif ext == ".flac":
                 flac = FLAC(filepath)
                 title = flac.get("TITLE", [""])[0]
@@ -712,27 +757,27 @@ class AudioTagGUI:
                 lyricist = flac.get("LYRICIST", [""])[0] if "LYRICIST" in flac else ""
                 composer = flac.get("COMPOSER", [""])[0] if "COMPOSER" in flac else ""
                 remixer = flac.get("MIXARTIST", [""])[0] if "MIXARTIST" in flac else ""
+                year = flac.get("DATE", [""])[0] if "DATE" in flac else ""
+
             elif ext == ".m4a":
                 mp4 = MP4(filepath)
                 title = mp4.tags.get("©nam", [""])[0] if "©nam" in mp4.tags else ""
                 artist = mp4.tags.get("©ART", [""])[0] if "©ART" in mp4.tags else ""
                 comment = mp4.tags.get("©cmt", [""])[0] if "©cmt" in mp4.tags else ""
-
-                # 作詞者は ©lyr
                 lyricist = mp4.tags.get("©lyr", [""])[0] if "©lyr" in mp4.tags else ""
-
-                # 作曲者は ©wrt
                 composer = mp4.tags.get("©wrt", [""])[0] if "©wrt" in mp4.tags else ""
-
                 remixer = ""  # m4a 非対応
+                year = mp4.tags.get("©day", [""])[0] if "©day" in mp4.tags else ""
 
             size = f"{os.path.getsize(filepath)/1024:.1f} KB"
-            self.log_message(f"title: {title} artist:{artist} comment:{comment} lyricist:{lyricist} composer:{composer} size:{size}")
-            return [title, artist, comment, lyricist, composer, remixer, size]
+            self.log_message(
+                f"title:{title} artist:{artist} year:{year} comment:{comment} lyricist:{lyricist} composer:{composer} size:{size}"
+            )
+            return [title, artist, comment, lyricist, composer, remixer, year, size]
 
         except Exception:
             self.log_message(f"タグ読み取りエラー: {filepath} → {traceback.format_exc()}")
-            return [os.path.basename(filepath), "", "", "", "", ""]
+            return [os.path.basename(filepath), "", "", "", "", "", "", ""]
 
     def stop_process(self):
         """中断ボタン押下時にフラグをセット"""
@@ -847,6 +892,12 @@ class AudioTagGUI:
                 # コメント（アニメ情報）
                 if info.get("anime"):
                     res = set_credit_tag(filepath, "コメント", info["anime"], force_overwrite=self.overwrite_flags["コメント"].get())
+                    self.log_message(res)
+
+                # 発売年（YEARタグ）
+                year = info.get("year", "")
+                if year:
+                    res = set_credit_tag(filepath, "発売年", year, force_overwrite=self.overwrite_flags["発売年"].get())
                     self.log_message(res)
 
                 # TreeView 更新
