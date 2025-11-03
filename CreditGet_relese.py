@@ -406,7 +406,7 @@ def set_credit_tag(filepath, role, value, force_overwrite=False):
 
             elif role == "発売年":
                 existing = tags.get("©day", [""])[0] if "©day" in tags else ""
-                if force_overwrite or not existing:
+                if force_overwrite or existing in ("", "0"):
                     tags["©day"] = [value]
                     updated = True
                     msg = f"発売年 書き込み → '{value}'"
